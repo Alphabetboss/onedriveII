@@ -11,46 +11,6 @@ STATIC = ROOT / "static"
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
 
-import base64
-from flask import Flask, render_template, request, jsonify
-from astra_persona import build_astra_prompt
-
-app = Flask(__name__)
-
-# TODO: wire these to your actual LLM + TTS
-def generate_astra_reply(prompt: str) -> str:
-    # Replace with your real LLM call
-    # For now, a stub:
-    return "I hear you, Austin. The garden is listening too."
-
-def generate_tts_audio(text: str) -> bytes:
-    # Replace with your real TTS engine
-    # Must return raw audio bytes (e.g., WAV)
-    return b""  # placeholder
-
-
-@app.route("/")
-def dashboard():
-    return render_template("dashboard.html")
-
-
-@app.post("/astra/chat")
-def astra_chat():
-    data = request.get_json(force=True)
-    user_msg = data.get("message", "").strip() or "Say hello, Astra."
-    # You can pass real telemetry here if you have it
-    prompt = build_astra_prompt(user_msg, telemetry=None)
-    reply = generate_astra_reply(prompt)
-    return jsonify({"reply": reply})
-
-
-@app.get("/astra/speak")
-def astra_speak():
-    # Simple greeting for now; you can later reuse the chat reply text
-    text = "Hello Austin. Astra online. The soil hums, and your garden is ready to grow."
-    audio_bytes = generate_tts_audio(text)
-    encoded = base64.b64encode(audio_bytes).decode("utf-8")
-    return jsonify({"audio": encoded})
 SCHEDULE_JSON = DATA / "schedule.json"
 DEFAULT_SCHEDULE = {"zones": {"1": {"minutes": 10, "enabled": True}}}
 
