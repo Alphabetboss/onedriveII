@@ -1,0 +1,41 @@
+﻿# app.py — minimal, cache-safe Flask loader for dashboard.html
+# -----------------------------------------------
+from pathlib import Path
+from flask import Flask, render_template, send_from_directory, request, make_response
+
+ROOT = Path(__file__).parent
+app = Flask(
+    __name__,                      # MUST be __name__ (not a string literal)
+    static_folder="static",
+    template_folder="templates"
+)
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# Prevent stale UI: no cache for HTML
+@app.after_request
+def _no_cache(resp):
+    ct = resp.headers.get("Content-Type","")
+    if "text/html" in ct:
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+# Root -> dashboard.html (must be in templates/)
+@app.get("/")
+def dashboard():
+    return render_template("dashboard.html")
+
+# Optional health endpoint
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+# Handle favicon to avoid 404 noise
+@app.get("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon")
+
+if __name__ == "__main__":
+    # 0.0.0.0 so you can hit it from your phone on LAN; edit port if you need.
+    app.run(host="0.0.0.0", port=5051, debug=True)

@@ -1,0 +1,508 @@
+﻿import os
+import json
+import random
+import re
+from datetime import datetime, timedelta
+from collections import deque
+from pathlib import Path
+from typing import Any, Optional, cast
+
+import requests
+from flask import Flask, request, jsonify, render_template_string
+import requests
+from flask import Flask, render_template, jsonify, request
+
+# --- Load environment variables ---
+from dotenv import load_dotenv
+load_dotenv()  
+# Core services
+store = ScheduleStore(DATA / "schedule.json")
+hw    = IrrigationHW()               # abstracts relays/valves
+alert = Notifier()                   # email + SMS
+guard = BurstGuard(hw=hw, notifier=alert)
+
+#
+
+@APP.post("/api/emergency/shutdown")
+def api_emergency_off():
+    reason = request.json.get("reason","manual")
+    hw.all_valves_off()
+    alert.notify(f"EMERGENCY SHUTDOWN: {reason}",
+                 f"Astra shut off all water. Reason: {reason}")
+    return jsonify({"ok": True})
+
+@APP.get("/api/schedule")
+def api_get_schedule():
+    return jsonify(store.data)
+
+# --- background: leak/burst watcher ---
+def _guard_loop():
+    while True:
+        try:
+            tripped, detail = guard.check()
+            if tripped:
+                hw.all_valves_off()
+                alert.notify("Emergency: suspected burst/abnormal flow", detail)
+        except Exception as e:
+            # keep running even if a check fails
+            print("guard error:", e)
+        time.sleep(2)  # light polling
+
+threading.Thread(target=_guard_loop, daemon=True).start()
+
+if __name__ == "__main__":
+    APP.run(host="0.0.0.0", port=int(os.getenv("PORT", 5051)))
+# =========================================================
+# Flask app + paths
+# =========================================================
+app = Flask(__name__, static_folder="static", template_folder="templates")
+
+APP_ROOT = Path(__file__).parent
+DATA_DIR = APP_ROOT / "data"
+DATA_DIR.mkdir(exist_ok=True)
+SCHEDULE_JSON = DATA_DIR / "schedule.json"
+CHAT_LOG = DATA_DIR / "conversation.json"
+
+# =========================================================
+# Chat / AI config
+# =========================================================
+CHAT_MEMORY = deque(maxlen=8)  # short-term chat memory (user+assistant turns)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+MODEL_NAME = os.getenv("II_CHAT_MODEL", "gpt-4o-mini")
+
+print("AI mode:", "OPENAI ✅" if OPENAI_API_KEY else "LOCAL (fallback)")
+
+# Default location: Houston, TX
+DEFAULT_LAT = float(os.getenv("II_LAT", "29.7604"))
+DEFAULT_LON = float(os.getenv("II_LON", "-95.3698"))
+
+# =========================================================
+# Schedule helpers
+# =========================================================
+_CANON_DEFAULT = {
+    "enabled": True,
+    "zone": 1,
+    "start_time": "05:00",
+    "duration_min": 10,
+    "frequency": "daily",
+    "every_x_days": None,
+}
+
+def _normalize_time(hhmm: str) -> Optional[str]:
+    """Accepts 5:30, 05:30, 5am, 5:30am, 17:00, etc. Returns 'HH:MM' or None."""
+    if not isinstance(hhmm, str):
+        return None
+    t = hhmm.strip().lower().replace(" ", "")
+    m = re.match(r"^(\d{1,2})(?::?(\d{2}))?(am|pm)?$", t)
+    if not m:
+        return None
+    hh = int(m.group(1))
+    mm = int(m.group(2) or 0)
+    ap = m.group(3)
+    if ap:
+        if ap == "pm" and hh < 12:
+            hh += 12
+        if ap == "am" and hh == 12:
+            hh = 0
+    if 0 <= hh <= 23 and 0 <= mm <= 59:
+        return f"{hh:02d}:{mm:02d}"
+    return None
+
+def _normalize_loaded_schedule(obj: dict) -> dict:
+    """Normalize legacy + canonical schedule keys."""
+    if not isinstance(obj, dict):
+        obj = {}
+    start_time = obj.get("start_time", obj.get("start_time_local", _CANON_DEFAULT["start_time"]))
+    duration_min = obj.get("duration_min", obj.get("duration_minutes", _CANON_DEFAULT["duration_min"]))
+    frequency = str(obj.get("frequency", "daily")).lower().strip()
+    every_x_days = obj.get("every_x_days", None)
+
+    try:
+        zone = int(obj.get("zone", 1))
+    except Exception:
+        zone = 1
+
+    try:
+        duration_min = int(duration_min)
+    except Exception:
+        duration_min = _CANON_DEFAULT["duration_min"]
+    if duration_min <= 0:
+        duration_min = _CANON_DEFAULT["duration_min"]
+
+    if frequency not in ("daily", "every_x_days"):
+        frequency = "daily"
+
+    if frequency == "every_x_days":
+        try:
+            every_x_days = int(every_x_days) if every_x_days is not None else None
+        except Exception:
+            every_x_days = None
+        if not every_x_days or every_x_days < 1:
+            every_x_days = 2
+
+    start_time = _normalize_time(start_time) or _CANON_DEFAULT["start_time"]
+
+    return {
+        "enabled": bool(obj.get("enabled", True)),
+        "zone": zone,
+        "start_time": start_time,
+        "duration_min": duration_min,
+        "frequency": frequency,
+        "every_x_days": every_x_days,
+    }
+
+def save_schedule(obj: dict) -> None:
+    canon = _normalize_loaded_schedule(obj)
+    SCHEDULE_JSON.write_text(json.dumps(canon, indent=2), "utf-8")
+
+def load_schedule() -> dict:
+    if SCHEDULE_JSON.exists():
+        try:
+            data = json.loads(SCHEDULE_JSON.read_text("utf-8"))
+        except Exception:
+            data = {}
+    else:
+        data = {}
+    canon = _normalize_loaded_schedule(data)
+    save_schedule(canon)
+    return canon
+
+# =========================================================
+# Chat memory helpers
+# =========================================================
+def load_chat_memory() -> list[dict]:
+    if CHAT_LOG.exists():
+        try:
+            data = json.loads(CHAT_LOG.read_text("utf-8"))
+            if isinstance(data, list):
+                return data[-8:]
+        except Exception:
+            pass
+    return []
+
+def save_chat_memory(memory: list[dict]) -> None:
+    try:
+        CHAT_LOG.write_text(json.dumps(memory[-20:], indent=2), "utf-8")
+    except Exception as e:
+        print("⚠️ Could not save chat memory:", e)
+
+# =========================================================
+# Weather (Open-Meteo, no API key)
+# =========================================================
+def get_quick_weather(lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON) -> dict:
+    try:
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&hourly=temperature_2m,precipitation"
+            "&current=temperature_2m,precipitation"
+            "&timezone=auto"
+        )
+        r = requests.get(url, timeout=6)
+        r.raise_for_status()
+        j = r.json()
+        cur = j.get("current", {})
+        return {"temp_c": cur.get("temperature_2m"), "precip_mm": cur.get("precipitation")}
+    except Exception:
+        return {"temp_c": None, "precip_mm": None}
+
+# =========================================================
+# Local fallback brain
+# =========================================================
+def _fallback_brain(txt: str, schedule: dict, weather: dict) -> str:
+    t = txt.lower()
+    zone = int(schedule.get("zone", 1))
+    start = str(schedule.get("start_time", "05:00"))
+    dur = int(schedule.get("duration_min", 10))
+    freq = schedule.get("frequency", "daily")
+    if not isinstance(freq, str):
+        freq = "daily"
+    freq_disp = freq.replace("_", " ")
+
+    if "schedule" in t or "start time" in t or "duration" in t:
+        return f"Your schedule is zone {zone} at {start} for {dur} min, {freq_disp}."
+    if any(k in t for k in ["hello", "hi", "hey", "yo"]):
+        return "Hey there! I can adjust duration, start time, or skip if it rains."
+    if "weather" in t:
+        return f"Quick read: temp≈{weather.get('temp_c')}°C, precip≈{weather.get('precip_mm')} mm."
+    return "Got it! I can adjust schedules, run manual cycles, or skip for rain."
+
+# =========================================================
+# AI reply (hybrid + persistent memory)
+# =========================================================
+def ai_reply(user_text: str) -> str:
+    txt = (user_text or "").strip()
+    if not txt:
+        return "Hey! I'm Astra, your AI Sprinkler Tech. Ask me about watering, weather, or your lawn."
+
+    schedule = load_schedule()
+    weather = get_quick_weather()
+    CHAT_MEMORY.extend(load_chat_memory())
+    CHAT_MEMORY.append({"role": "user", "content": txt})
+
+    if not OPENAI_API_KEY:
+        reply = _fallback_brain(txt, schedule, weather)
+    else:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            messages = [{"role": m["role"], "content": m["content"]} for m in CHAT_MEMORY]
+            messages_param = cast(Any, messages)
+            resp = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages_param,
+                temperature=0.8,
+                max_tokens=300,
+            )
+            content = None
+            try:
+                choice = resp.choices[0] if getattr(resp, "choices", None) else None
+                msg = getattr(choice, "message", None) if choice is not None else None
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                else:
+                    content = getattr(msg, "content", None)
+            except Exception:
+                content = None
+            reply = content.strip() if content else _fallback_brain(txt, schedule, weather)
+        except Exception as e:
+            reply = f"(Fallback mode) Could not reach AI service: {e}\n" + _fallback_brain(txt, schedule, weather)
+
+    CHAT_MEMORY.append({"role": "assistant", "content": reply})
+    save_chat_memory(list(CHAT_MEMORY))
+    return reply
+
+# =========================================================
+# Routes
+# =========================================================
+@app.route("/")
+def home_legacy():
+    return render_template("dashboard.html")
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
+
+@app.route("/chat")
+def chat_page():
+    return render_template("chat_voice.html")
+
+@app.get("/api/healthz")
+def api_healthz():
+    return jsonify({"ok": True})
+
+@app.get("/api/ai_status")
+def api_ai_status():
+    return jsonify({"online": bool(OPENAI_API_KEY), "model": MODEL_NAME if OPENAI_API_KEY else "local"})
+
+@app.post("/api/ask")
+def api_ask():
+    data = request.get_json(silent=True) or {}
+    user_text = data.get("text", "")
+    reply = ai_reply(user_text)
+    return jsonify({"reply": reply})
+
+@app.get("/api/status")
+def api_status():
+    return jsonify({"ok": True, "schedule": load_schedule()})
+
+@app.route("/api/schedule", methods=["GET", "POST"])
+def api_schedule():
+    if request.method == "GET":
+        return jsonify({"ok": True, "schedule": load_schedule()})
+    body = request.get_json(silent=True) or {}
+    save_schedule(body)
+    return jsonify({"ok": True, "schedule": load_schedule()})
+
+# (Removed broken/duplicated entrypoint block; a valid __main__ entrypoint exists later in the file.)
+
+
+
+# -----------------------------
+# Load .env if present
+# -----------------------------
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+except Exception:
+    # Still works if python-dotenv isn’t installed
+    pass
+
+
+# -----------------------------
+# App + Paths
+# -----------------------------
+APP_ROOT = Path(__file__).parent
+DATA_DIR = APP_ROOT / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+app = Flask(
+    __name__,
+    static_folder=str(APP_ROOT / "static"),
+    template_folder=str(APP_ROOT / "templates"),
+)
+
+# -----------------------------
+# Config
+# -----------------------------
+CHAT_MEMORY = deque(maxlen=8)
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+MODEL_NAME = os.getenv("II_CHAT_MODEL", "gpt-4o-mini").strip()
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _key_is_plausible(key: str) -> bool:
+    """Quick sanity check for valid key pattern."""
+    return bool(key) and key.startswith("sk-") and len(key) > 20
+
+
+def call_ai(messages):
+    """
+    Minimal OpenAI Chat Completions call with strong error handling.
+    Returns (ok: bool, text: str)
+    """
+    if not _key_is_plausible(OPENAI_API_KEY):
+        return False, (
+            "AI is in fallback mode: missing or invalid API key.\n"
+            "Fix: add OPENAI_API_KEY to your .env or setx it in PowerShell."
+        )
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": messages,
+        "temperature": 0.4,
+        "max_tokens": 300,
+    }
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        r = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=30)
+    except requests.RequestException as e:
+        return False, f"AI network error. Fallback reply. Details: {e}"
+
+    # Clean error handling
+    if r.status_code != 200:
+        try:
+            err = r.json()
+        except Exception:
+            err = {"error": {"message": r.text[:200]}}
+
+        status = r.status_code
+        code = (err.get("error") or {}).get("code", "")
+        msg = (err.get("error") or {}).get("message", "Unknown error")
+
+        if status == 401:
+            short = "Invalid or missing OpenAI API key. Update OPENAI_API_KEY."
+        elif status == 429:
+            short = "Rate limited or quota exceeded. Try again or check billing."
+        else:
+            short = f"AI call failed ({status})."
+
+        return False, f"{short} (code: {code or 'n/a'}; msg: {msg[:160]})"
+
+    # Parse successful response
+    try:
+        data = r.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        return True, text
+    except Exception as e:
+        return False, f"AI response parse error. Fallback reply. Details: {e}"
+
+
+# -----------------------------
+# Routes
+# -----------------------------
+@app.route("/")
+def home():
+    """Simple inline dashboard for Astra."""
+    return render_template_string(
+        """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Astra — Your AI Sprinkler Tech</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{background:#0b0c0c;color:#e6f2e6;font-family:Segoe UI,Roboto,Arial,sans-serif;margin:0}
+    header{padding:18px 20px;background:#1c1f22;border-bottom:1px solid #2a2e33}
+    .wrap{max-width:920px;margin:18px auto;padding:0 16px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#2a2e33;color:#92ff7a;font-weight:600}
+    .bubble{background:#2a2e33;padding:14px 16px;border-radius:12px;margin:8px 0;white-space:pre-wrap}
+    form{display:flex;gap:8px;margin-top:10px}
+    input[type=text]{flex:1;padding:12px;border-radius:8px;border:1px solid #3a3f45;background:#0b0c0c;color:#e6f2e6}
+    button{padding:12px 16px;border-radius:8px;border:1px solid #3a3f45;background:#3a3f45;color:#e6f2e6;cursor:pointer}
+    footer{color:#9fb3a7;font-size:12px;margin-top:12px}
+  </style>
+</head>
+<body>
+  <header><div class="wrap"><span class="pill">Astra — Your AI Sprinkler Tech</span></div></header>
+  <div class="wrap">
+    <div id="log" class="bubble">Ask Astra anything about watering times, durations, or rain skips…</div>
+    <form id="f">
+      <input id="q" type="text" placeholder="Ask Astra…" autofocus/>
+      <button>Send</button>
+    </form>
+    <footer>
+      Model: {{ model }} · Key loaded: {{ key_ok }}
+    </footer>
+  </div>
+<script>
+const f = document.getElementById('f');
+const q = document.getElementById('q');
+const log = document.getElementById('log');
+f.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const text = q.value.trim();
+  if(!text) return;
+  log.textContent += "\\n\\nYou: " + text;
+  q.value = "";
+  const r = await fetch("/chat", {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({message: text})
+  });
+  const j = await r.json();
+  log.textContent += "\\n\\nAstra: " + j.reply;
+});
+</script>
+</body>
+</html>
+        """,
+        model=MODEL_NAME,
+        key_ok="Yes" if _key_is_plausible(OPENAI_API_KEY) else "No",
+    )
+
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    """Handle chat interactions."""
+    user_msg = (request.json or {}).get("message", "").strip()[:1000]
+    if not user_msg:
+        return jsonify({"ok": False, "reply": "Please type a message."})
+
+    CHAT_MEMORY.append({"role": "user", "content": user_msg})
+    messages = [{"role": "system", "content": "You are Astra, a helpful AI sprinkler technician."}]
+    messages.extend(list(CHAT_MEMORY))
+
+    ok, reply = call_ai(messages)
+    CHAT_MEMORY.append({"role": "assistant", "content": reply})
+
+    return jsonify({"ok": ok, "reply": reply})
+
+
+# -----------------------------
+# Entrypoint
+# -----------------------------
+if __name__ == "__main__":
+    host = os.getenv("APP_HOST", "127.0.0.1")
+    port = int(os.getenv("APP_PORT", "5051"))
+    debug = os.getenv("DEBUG", "1") not in ("0", "false", "False")
+
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Astra starting on http://{host}:{port}")
+    print(f"Model: {MODEL_NAME} | Key present: {_key_is_plausible(OPENAI_API_KEY)}")
+    app.run(host=host, port=port, debug=debug)

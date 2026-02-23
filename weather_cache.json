@@ -1,0 +1,11 @@
+{
+  "last_updated": "2025-08-14T05:00:00",
+  "location": "Houston, TX",
+  "temperature_f": 88,
+  "humidity_percent": 72,
+  "rain_inches_last_24h": 0.15,
+  "rain_inches_next_24h": 0.10,
+  "forecast_high_f": 94,
+  "forecast_low_f": 78,
+  "conditions": "Partly Cloudy"
+}

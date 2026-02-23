@@ -1,0 +1,34 @@
+[
+  {
+    "role": "user",
+    "content": "hello can u change the watering schedule to the perfect running time for my time zone?"
+  },
+  {
+    "role": "assistant",
+    "content": "(Fallback mode) Could not reach AI service: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-**********************_KEY. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}\nYour schedule is zone 1 at 05:00 for 10 min, daily."
+  },
+  {
+    "role": "user",
+    "content": "hello"
+  },
+  {
+    "role": "assistant",
+    "content": "(Fallback mode) Could not reach AI service: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-**********************_KEY. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}\nHey there! I can adjust duration, start time, or skip if it rains."
+  },
+  {
+    "role": "user",
+    "content": "hello?"
+  },
+  {
+    "role": "assistant",
+    "content": "(Fallback mode) Could not reach AI service: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-**********************_KEY. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}\nHey there! I can adjust duration, start time, or skip if it rains."
+  },
+  {
+    "role": "user",
+    "content": "hello"
+  },
+  {
+    "role": "assistant",
+    "content": "(Fallback mode) Could not reach AI service: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-**********************_KEY. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}\nHey there! I can adjust duration, start time, or skip if it rains."
+  }
+]
