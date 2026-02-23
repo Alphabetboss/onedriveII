@@ -1,0 +1,98 @@
+{
+  "root": "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation",
+  "ts": "2025-08-22 02:15:39",
+  "python": {
+    "version": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "executable": "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\Scripts\\python.exe",
+    "cwd": "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation",
+    "venv": true
+  },
+  "packages": {
+    "flask": {
+      "present": true,
+      "version": "3.1.1"
+    },
+    "requests": {
+      "present": false,
+      "error": "ModuleNotFoundError: No module named 'requests.__version__'"
+    },
+    "ultralytics": {
+      "present": false,
+      "error": "OSError: [WinError 126] The specified module could not be found. Error loading \"C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\lib\\site-packages\\torch\\lib\\shm.dll\" or one of its dependencies."
+    },
+    "cv2": {
+      "present": true,
+      "version": "4.12.0"
+    },
+    "numpy": {
+      "present": true,
+      "version": "1.26.4"
+    },
+    "PIL": {
+      "present": true,
+      "version": "11.3.0"
+    }
+  },
+  "files": {
+    "app.py": true,
+    "irrigation_api.py": true,
+    "schedule_manager.py": true,
+    "schedule.json": true,
+    "weather_cache.json": false,
+    "hydration_scores.csv": false,
+    "hydration_model.pt": false,
+    "watering.log": false,
+    "hydration_analysis.log": false,
+    "templates/index.html": false,
+    "templates/settings.html": true,
+    "static/": true,
+    "_multiple_app_py_count": 5,
+    "_multiple_app_py_paths": [
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\app.py",
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\Lib\\site-packages\\chromadb\\app.py",
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\Lib\\site-packages\\flask\\app.py",
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\Lib\\site-packages\\flask\\sansio\\app.py",
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\.venv\\Lib\\site-packages\\pythonwin\\pywin\\framework\\app.py"
+    ]
+  },
+  "data_file_issues": [
+    "schedule.json: JSONDecodeError: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)"
+  ],
+  "port_open": false,
+  "endpoints": {
+    "/health": {
+      "code": null,
+      "body": "ERROR: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+    },
+    "/probe": {
+      "code": null,
+      "body": "ERROR: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+    }
+  },
+  "camera": {
+    "tested": true,
+    "frame_ok": true,
+    "width": 640,
+    "height": 480
+  },
+  "gpio": {
+    "rpi": false
+  },
+  "yolo": {
+    "candidates": [
+      "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\hydration_model.pt"
+    ],
+    "found": []
+  },
+  "compile_errors": [
+    "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\active_learning_pipeline.py: SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 289-290: truncated \\uXXXX escape (active_learning_pipeline.py, line 26)",
+    "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\irrigation_api.py: IndentationError: unindent does not match any outer indentation level (irrigation_api.py, line 22)",
+    "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\scripts\\Ollama.py: SyntaxError: invalid decimal literal (Ollama.py, line 4)",
+    "C:\\Users\\alpha\\Desktop\\IngeniousIrrigation\\scripts\\scan_dataset.py: SyntaxError: invalid non-printable character U+FEFF (scan_dataset.py, line 1)"
+  ],
+  "logs_tail": {
+    "watering.log": [],
+    "hydration_analysis.log": []
+  }
+}

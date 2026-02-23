@@ -1,0 +1,3 @@
+class LLMError(Exception): ...
+def local_chat(prompt:str, model:str="local")->str:
+    return f"[stub llm:{model}] {prompt}"

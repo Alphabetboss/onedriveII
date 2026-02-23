@@ -1,0 +1,73 @@
+﻿{{
+  "zones": {
+    "1": { "name": "Front Lawn",  "minutes": 10, "enabled": true },
+    "2": { "name": "Back Lawn",   "minutes": 8,  "enabled": false },
+    "3": { "name": "Flower Beds", "minutes": 6,  "enabled": false }
+  },
+
+  "schedule": {
+    "mode": "days_of_week",
+    "start_time": "05:00",
+    "timezone": "America/Chicago",
+    "days_of_week": ["Mon", "Wed", "Fri"],
+    "every_x_days": 1,
+    "soak_cycle": {
+      "enabled": true,
+      "splits": 2,
+      "soak_minutes_between_splits": 15
+    }
+  },
+
+  "policy": {
+    "target_weekly_inches": 1.25,
+    "skip_if_rain_24h_in": 0.25,
+    "reduce_if_rain_24h_in": 0.10,
+    "hot_temp_f": 93,
+    "cold_temp_f": 45,
+    "max_runtime_minutes_per_cycle": 30,
+    "hydration_scale": {
+      "enabled": true,
+      "invert": true,
+      "baseline_score": 5.0,
+      "adjust_per_point_minutes": 2.0,
+      "clamp_minutes_min": 3,
+      "clamp_minutes_max": 30
+    }
+  },
+
+  "overrides": {
+    "rain_skip": true,
+    "freeze_guard": true,
+    "manual_pause": {
+      "active": false,
+      "until_iso": null,
+      "reason": ""
+    }
+  },
+
+  "weather": {
+    "enabled": true,
+    "provider": "local_cache",
+    "last_checked_iso": null
+  },
+
+  "alerts": {
+    "leak_detection": { "enabled": true, "threshold_gpm": 2.5 },
+    "dry_patch":      { "enabled": true, "threshold_score": 3.0 },
+    "oversaturation": { "enabled": true, "threshold_score": 8.5 }
+  },
+
+  "hardware": {
+    "relay_pin_bcm": 17,
+    "zone_order": ["1", "2", "3"]
+  },
+
+  "metadata": {
+    "version": 1,
+    "location": "Houston, TX",
+    "created_by": "Ingenious Irrigation",
+    "created_at": "2025-10-31T07:45:00Z",
+    "last_updated": "2025-10-31T07:45:00Z"
+  }
+}
+

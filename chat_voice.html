@@ -1,0 +1,79 @@
+<html lang="en">
+<div class="row2">
+<button class="secondary" data-prompt="Set watering to 10 minutes at 5:00 AM daily.">10 min @ 5:00 AM daily</button>
+<button class="secondary" data-prompt="Skip watering tomorrow if it rains tonight.">Skip if rain tonight</button>
+<button class="secondary" data-prompt="Show me last week’s hydration and watering log.">Show last week log</button>
+</div>
+<div id="log" class="log" aria-live="polite" aria-busy="false"></div>
+</div>
+</div>
+</div>
+
+
+<script>
+const $ = sel => document.querySelector(sel);
+const input = $('#input');
+const log = $('#log');
+const sendBtn = $('#send');
+const speakBtn = $('#speak');
+
+
+// Helper to append messages
+function addMsg(text, who){
+const div = document.createElement('div');
+div.className = `msg ${who}`;
+const when = new Date().toLocaleString();
+div.innerHTML = `<div class="meta">${who === 'user' ? 'You' : 'AI'} · ${when}</div>` +
+`<div>${escapeHtml(text).replace(/\n/g,'<br>')}</div>`;
+log.appendChild(div);
+log.scrollTop = log.scrollHeight;
+}
+
+
+function escapeHtml(unsafe){
+return (unsafe||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#039;'}[m]));
+}
+
+
+// Quick prompts buttons
+document.querySelectorAll('button.secondary[data-prompt]').forEach(b=>{
+b.addEventListener('click', ()=>{ input.value = b.dataset.prompt; input.focus(); });
+});
+
+
+async function send(){
+const text = (input.value||'').trim();
+if(!text){ input.focus(); return; }
+addMsg(text,'user');
+input.value='';
+try{
+const r = await fetch('/api/ask', {
+method:'POST', headers:{'Content-Type':'application/json'},
+body: JSON.stringify({text})
+});
+const j = await r.json();
+const reply = j?.reply ?? '(No reply)';
+addMsg(reply,'bot');
+lastReply = reply;
+}catch(e){
+addMsg('(Error talking to server: '+e+')','bot');
+}
+}
+
+
+// TTS (client-side)
+let lastReply = '';
+function speak(text){
+const msg = new SpeechSynthesisUtterance(text || lastReply || 'There is no reply to speak yet.');
+msg.rate = 1.03; msg.pitch = 1.0; msg.volume = 1.0; // tweak if you like
+window.speechSynthesis.cancel();
+window.speechSynthesis.speak(msg);
+}
+
+
+sendBtn.addEventListener('click', send);
+speakBtn.addEventListener('click', ()=> speak());
+input.addEventListener('keydown', e=>{ if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ send(); }});
+</script>
+</body>
+</html>

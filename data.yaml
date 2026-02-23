@@ -1,0 +1,12 @@
+﻿path: dataset/yolo
+train: images/train
+val: images/val
+names:
+  - healthy_grass
+  - dead_grass
+  - puddle
+  - mud
+  - sprinkler_head
+  - leak
+  - bare_soil
+  - weed_cluster

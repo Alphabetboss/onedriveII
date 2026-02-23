@@ -1,0 +1,8 @@
+﻿{
+  "timestamp":"2025-09-06T00:00:00Z",
+  "green_coverage":0.32,
+  "dead_grass_pct":0.0,
+  "standing_water": false,
+  "puddles_conf": 0.0,
+  "detections": []
+}

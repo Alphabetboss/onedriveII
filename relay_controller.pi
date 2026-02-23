@@ -1,0 +1,178 @@
+# relay_controller.py — GPIO-safe relay control with simulation fallback
+# ---------------------------------------------------------------------
+# - Uses BCM numbering by default (pin 17) — change via env:
+#       II_RELAY_PIN=17
+#       II_ACTIVE_LOW=1    (set if your relay is active-low)
+# - On non-Pi machines, it simulates the relay (no dependency on RPi.GPIO).
+# - Public functions keep backward compatibility:
+#       setup(), water_for(seconds), on(), off(), cleanup()
+#
+# Optional extras you can call:
+#       pulse(ms=250), is_active(), set_pin(pin), set_active_low(True/False)
+
+from __future__ import annotations
+import os
+import time
+from dataclasses import dataclass
+
+# --- Try to import GPIO -------------------------------------------------------
+_HAS_GPIO = False
+try:
+    import RPi.GPIO as GPIO  # type: ignore
+    _HAS_GPIO = True
+except Exception:
+    _HAS_GPIO = False
+
+# --- Config from environment --------------------------------------------------
+_DEFAULT_PIN = int(os.getenv("II_RELAY_PIN", "17"))
+_ACTIVE_LOW  = os.getenv("II_ACTIVE_LOW", "0") in ("1", "true", "True")
+
+@dataclass
+class _State:
+    pin: int = _DEFAULT_PIN
+    active_low: bool = _ACTIVE_LOW
+    initialized: bool = False
+    last_on_ts: float | None = None
+    last_off_ts: float | None = None
+
+_state = _State()
+
+# --- Helpers ------------------------------------------------------------------
+def _ensure_setup() -> None:
+    if _state.initialized:
+        return
+    if _HAS_GPIO:
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)             # BCM numbering
+        GPIO.setup(_state.pin, GPIO.OUT)
+        # Make sure we start in OFF state
+        _gpio_write(False)
+    _state.initialized = True
+
+def _gpio_write(turn_on: bool) -> None:
+    """
+    turn_on=True  -> energize the relay (respecting active_low wiring)
+    turn_on=False -> de-energize the relay
+    """
+    if not _HAS_GPIO:
+        # Sim mode; nothing to write
+        return
+    level = GPIO.LOW if (turn_on and _state.active_low) else \
+            GPIO.HIGH if (turn_on and not _state.active_low) else \
+            (GPIO.HIGH if _state.active_low else GPIO.LOW)
+    GPIO.output(_state.pin, level)
+
+def _status_dict(status: str, seconds: float | None = None) -> dict:
+    return {
+        "status": status,
+        "gpio": _HAS_GPIO,
+        "pin_bcm": _state.pin,
+        "active_low": _state.active_low,
+        "seconds": seconds
+    }
+
+# --- Public API (backward compatible) ----------------------------------------
+def setup(pin: int | None = None, active_low: bool | None = None) -> bool:
+    """
+    Initialize the relay controller. Returns True if real GPIO is in use,
+    False if running in simulation mode.
+    """
+    if pin is not None:
+        _state.pin = int(pin)
+    if active_low is not None:
+        _state.active_low = bool(active_low)
+    _ensure_setup()
+    return _HAS_GPIO
+
+def set_pin(pin: int) -> None:
+    was_on = is_active()
+    cleanup()
+    _state.pin = int(pin)
+    _state.initialized = False
+    setup()
+    if was_on:
+        on()
+
+def set_active_low(active_low: bool) -> None:
+    _state.active_low = bool(active_low)
+    if _state.initialized:
+        # Re-assert current state to apply wiring logic
+        if is_active():
+            _gpio_write(True)
+        else:
+            _gpio_write(False)
+
+def on() -> dict:
+    _ensure_setup()
+    _gpio_write(True)
+    _state.last_on_ts = time.time()
+    return _status_dict("ok-on")
+
+def off() -> dict:
+    _ensure_setup()
+    _gpio_write(False)
+    _state.last_off_ts = time.time()
+    return _status_dict("ok-off")
+
+def is_active() -> bool:
+    """
+    Best-effort — we track state locally because not all relay boards read back.
+    """
+    if _state.last_on_ts is None and _state.last_off_ts is None:
+        return False
+    if _state.last_off_ts is None:
+        return True
+    if _state.last_on_ts is None:
+        return False
+    return _state.last_on_ts >= _state.last_off_ts
+
+def pulse(ms: int = 250) -> dict:
+    """
+    Briefly energize the relay for diagnostics (default 250ms).
+    """
+    _ensure_setup()
+    on()
+    time.sleep(max(0.0, ms / 1000.0))
+    off()
+    return _status_dict("ok-pulse", seconds=ms / 1000.0)
+
+def water_for(seconds: float = 10.0) -> dict:
+    """
+    Energize the relay for `seconds` and then turn it off.
+    Works in simulation on non-Pi machines.
+    """
+    _ensure_setup()
+    try:
+        on()
+        # On Pi we actually wait the full duration to run the valve.
+        # In sim, don't block too long; cap to a tiny sleep but report full seconds.
+        if _HAS_GPIO:
+            time.sleep(max(0.0, float(seconds)))
+        else:
+            time.sleep(min(0.1, float(seconds)))  # quick sim step
+        off()
+        return _status_dict("ok", seconds=float(seconds))
+    except Exception as e:
+        try:
+            off()
+        except Exception:
+            pass
+        return {**_status_dict("error", seconds=float(seconds)), "error": str(e)}
+
+def cleanup() -> None:
+    if _HAS_GPIO and _state.initialized:
+        try:
+            off()
+        except Exception:
+            pass
+        GPIO.cleanup(_state.pin)
+    _state.initialized = False
+
+# If this file is run directly, perform a quick self-test.
+if __name__ == "__main__":
+    print("relay_controller: GPIO =", _HAS_GPIO, "PIN =", _state.pin, "active_low =", _state.active_low)
+    setup()
+    print("Pulse:", pulse(200))
+    print("Water 1s:", water_for(1))
+    cleanup()
+    print("Done.")

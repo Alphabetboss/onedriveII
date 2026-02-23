@@ -1,0 +1,20 @@
+# controller_adapter.py
+import requests
+
+class OpenSprinklerAdapter:
+    def __init__(self, base_url, api_key):
+        self.base = base_url.rstrip("/")
+        self.key = api_key
+
+    def _get(self, path, **params):
+        return requests.get(f"{self.base}/{path}", params={"apikey": self.key, **params}, timeout=8).json()
+
+    def run_zone(self, station_index: int, minutes: int):
+        # Mirrors Home Assistant/OpenSprinkler actions; adjust endpoint per device
+        return self._get("cm", sid=station_index, en=1, t=minutes*60)
+
+    def stop_all(self):
+        return self._get("cv")  # cancel all programs
+
+    def get_status(self):
+        return self._get("ja")  # controller state / stations

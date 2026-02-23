@@ -1,0 +1,25 @@
+import RPi.GPIO as GPIO
+import time
+
+# Define your zone pins (GPIO numbers)
+ZONE_PINS = {
+    1: 17,  # Zone 1
+    2: 27,  # Zone 2
+    3: 22,  # Zone 3
+}
+
+GPIO.setmode(GPIO.BCM)
+for pin in ZONE_PINS.values():
+    GPIO.setup(pin, GPIO.OUT)
+    GPIO.output(pin, GPIO.LOW)
+
+def start_zone(zone, duration):
+    if zone in ZONE_PINS:
+        GPIO.output(ZONE_PINS[zone], GPIO.HIGH)
+        print(f"Zone {zone} ON for {duration} seconds")
+        time.sleep(duration)
+        GPIO.output(ZONE_PINS[zone], GPIO.LOW)
+        print(f"Zone {zone} OFF")
+
+# Example: Run zone 1 for 10 seconds
+# start_zone(1, 10)
